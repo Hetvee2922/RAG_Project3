@@ -3,7 +3,7 @@ title: Multimodal Document Intelligence RAG
 emoji: 🧠
 colorFrom: blue
 colorTo: indigo
-sdk: streamlit
+sdk: docker
 app_file: main.py
 pinned: false
 ---
