@@ -24,7 +24,7 @@ clip_model, clip_processor, device = load_clip_model()
 # =========================================================
 # TEXT SPLITTING CONFIG
 # =========================================================
-# CLIP has a strict 77-token limit. We use 200 characters to ensure
+# CLIP has a strict 77-token limit. We use 400 characters to ensure
 # the text fits within that limit while keeping context.
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=2000,    
