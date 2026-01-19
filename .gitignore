@@ -1,0 +1,14 @@
+# Streamlit secrets (The most important part!)
+.streamlit/secrets.toml
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local vector database files (optional, if you want to re-index on HF)
+vector_store.index
+docstore.pkl
+
+# Environment files
+.env
+venv/

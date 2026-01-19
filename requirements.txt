@@ -1,0 +1,16 @@
+# Core ML Backend (CPU optimized for HF Spaces)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+torchvision==0.17.0+cpu
+
+# Multimodal & Logic
+transformers
+faiss-cpu
+pymupdf
+langchain-text-splitters
+pillow
+
+# Interface & API
+streamlit
+groq
+python-dotenv
