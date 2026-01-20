@@ -4,11 +4,13 @@ torch==2.2.0+cpu
 torchvision==0.17.0+cpu
 
 # Multimodal & Logic
+pytesseract
 transformers
 faiss-cpu
 pymupdf
 langchain-text-splitters
 pillow
+numpy
 
 # Interface & API
 streamlit

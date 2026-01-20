@@ -7,98 +7,72 @@ from groq import Groq
 from logic import get_clip_text_embedding
 from database import load_vector_store
 
-# -------------------------------------------------
-# Groq Client Setup
-# -------------------------------------------------
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY)
+client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# Use the precise model ID for Groq's 2026 multimodal flagship
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct" 
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 def retrieve_context(query, k=30):
-    """Searches the FAISS index for relevant text and image chunks."""
     index, docstore = load_vector_store()
-    if index is None:
-        return None, "Knowledge base is empty. Please upload a PDF first."
+    if index is None or index.ntotal == 0:
+        return None, "Knowledge base is empty."
 
     query_emb = get_clip_text_embedding(query)
     if query_emb is None:
-        return None, "Error generating embedding for your question."
+        return None, "Failed to embed query."
 
-    # Search logic
     query_emb = np.asarray(query_emb, dtype="float32").reshape(1, -1)
-    faiss.normalize_L2(query_emb)
     _, indices = index.search(query_emb, k)
 
-    results = []
-    for idx in indices[0]:
-        if idx < len(docstore):
-            results.append(docstore[idx])
-
-    return results, None
-
-def generate_answer(query, results):
-    """Sends retrieved context to Llama 4 Scout for a factual response."""
-    
-    # 1. THE SYSTEM INSTRUCTION (Forces focus and stops randomness)
-    system_prompt = (
-        "You are an Advanced Document Intelligence Assistant. You are provided with fragments "
-        "of a document and its corresponding images. \n"
-        "STRICT INSTRUCTIONS:\n"
-        "1. Base your answer EXCLUSIVELY on the provided Document Data.\n"
-        "2. If you find information for one section (e.g. Sem-3) but not the requested one (e.g. Sem-4), "
-        "state exactly what you found and what is missing.\n"
-        "3. Synthesize the fragments into a professional, cohesive response. \n"
-        "4. Do NOT hallucinate or use outside knowledge."
-    )
-
-    # 2. ORGANIZE TEXT CONTEXT
-    # We combine all text chunks into one block so the AI sees the 'flow'
-    full_text_context = "\n\n--- DATA SEGMENT ---\n".join([
-        res['content'] for res in results if res["type"] == "text"
-    ])
-
-    # 3. BUILD THE MULTIMODAL MESSAGE
-    # Use the 'system' role for instructions and 'user' for data
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": f"DOCUMENT CONTEXT:\n{full_text_context}"},
-                {"type": "text", "text": f"USER QUESTION: {query}"}
-            ]
-        }
+    text_hits = [
+        docstore[i] for i in indices[0]
+        if i < len(docstore) and docstore[i]["type"] == "text"
     ]
 
-    # 4. ADD UNIQUE IMAGES (Deduplication)
-    sent_image_pages = set()
-    image_count = 0
+    pages = {t["metadata"].get("page") for t in text_hits}
+    image_hits = [
+        d for d in docstore
+        if d["type"] == "image" and d["metadata"].get("page") in pages
+    ]
 
-    for item in results:
-        if item["type"] == "image" and image_count < 5: # Groq limit is 5 images
-            page_num = item["metadata"].get("page", "unknown")
-            if page_num not in sent_image_pages:
-                img_b64 = base64.b64encode(item["image_bytes"]).decode()
+    return text_hits + image_hits, None
+
+def generate_answer(query, results):
+    if not client:
+        return "GROQ_API_KEY not configured."
+
+    system_prompt = (
+        "You are an Advanced Document Intelligence Assistant.\n"
+        "Answer ONLY using provided document data.\n"
+        "Do not hallucinate."
+    )
+
+    text_context = "\n\n".join(r["content"] for r in results if r["type"] == "text")
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": [
+            {"type": "text", "text": f"DOCUMENT CONTEXT:\n{text_context}"},
+            {"type": "text", "text": f"QUESTION:\n{query}"}
+        ]}
+    ]
+
+    sent_pages = set()
+    for r in results:
+        if r["type"] == "image" and len(sent_pages) < 5:
+            page = r["metadata"].get("page")
+            if page not in sent_pages:
+                img_b64 = base64.b64encode(r["image_bytes"]).decode()
                 messages[1]["content"].append({
                     "type": "image_url",
                     "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
                 })
-                sent_image_pages.add(page_num)
-                image_count += 1
+                sent_pages.add(page)
 
-    # 5. EXECUTE COMPLETION
-    try:
-        response = client.chat.completions.create(
-            model=VISION_MODEL,
-            messages=messages,
-            temperature=0.0,  # CRITICAL: 0.0 removes randomness/hallucinations
-            max_tokens=1024
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        # Check if it's the model name error
-        if "model_decommissioned" in str(e) or "400" in str(e):
-            return "Error: Groq model name updated. Try 'llama-3.2-11b-vision' in the code."
-        return f"Generation Error: {str(e)}"
+    response = client.chat.completions.create(
+        model=VISION_MODEL,
+        messages=messages,
+        temperature=0.0,
+        max_tokens=1024
+    )
+    return response.choices[0].message.content

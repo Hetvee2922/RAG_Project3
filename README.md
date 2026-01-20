@@ -30,6 +30,7 @@ This version introduces **true multimodal reasoning** using Groq’s **Llama 4 S
 - **Multimodal RAG:** Query across PDFs, standalone images, and text files.
 - **Chart & Graph Understanding:** The model can interpret trends directly from visual data.
 - **Digital Text Extraction:** Uses **PyMuPDF** for fast, accurate extraction from complex PDF layouts.
+- **OCR for Textual Images:** Uses **Tesseract OCR (via PyTesseract)** to extract text from scanned pages, charts, tables, and screenshots, making image-based content searchable through CLIP embeddings.
 - **Vector Search:** High-speed similarity search using **FAISS (CPU)**.
 - **Hallucination Control:** The AI is explicitly constrained to retrieved context and prompted to cite sources.
 
@@ -64,6 +65,8 @@ This version introduces **true multimodal reasoning** using Groq’s **Llama 4 S
 - Secrets: Add GROQ_API_KEY under Space → Settings → Secrets
 - Hardware: Optimized to run on the Free CPU Tier
 - Why Docker: Ensures all required Linux libraries for FAISS and PyMuPDF are available without runtime crashes.
+- OCR Support: Docker installs `tesseract-ocr` and language packs to ensure reliable text extraction from images on Hugging Face Spaces.
+
 
 ## 📁 Project Structure
 - main.py — Streamlit UI and application flow
