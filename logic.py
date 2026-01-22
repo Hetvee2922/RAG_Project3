@@ -154,3 +154,25 @@ def process_standalone_image(image_bytes: bytes, source: str):
             "page": None  # IMPORTANT: marks it as standalone
         }
     }]
+
+# -------------------------------------------------
+# MARKDOWN FILE PROCESSING
+# -------------------------------------------------
+def process_markdown_file(file_content: bytes, filename: str):
+    # Step 1: Convert the bytes into a string
+    text = file_content.decode("utf-8", errors="ignore")
+    
+    # Step 2: Use the splitter to chop it into chunks
+    # Note: RecursiveCharacterTextSplitter works great for Markdown 
+    # because it already uses "\n\n" (paragraphs) as a primary separator.
+    chunks = text_splitter.split_text(text)
+    
+    # Step 3: Package it into our standard list of dictionaries
+    return [
+        {
+            "type": "text",
+            "content": f"SOURCE: {filename} (Markdown)\n{c}",
+            "metadata": {"source": filename, "format": "markdown"}
+        }
+        for c in chunks
+    ]

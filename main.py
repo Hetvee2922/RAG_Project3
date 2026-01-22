@@ -1,9 +1,11 @@
 import streamlit as st
 import os
+import time
 
 from logic import (
     process_pdf,
     process_text_file,
+    process_markdown_file,
     process_standalone_image
 )
 from ingest import build_index
@@ -26,8 +28,8 @@ with st.sidebar:
     st.header("📥 Ingest Documents")
 
     uploaded_files = st.file_uploader(
-        "Upload PDF, Image, or Text Files",
-        type=["pdf", "jpg", "jpeg", "png", "txt"],
+        "Upload PDF, Image, Markdown, or Text Files",
+        type=["pdf", "jpg", "jpeg", "png", "txt", "md"],
         accept_multiple_files=True
     )
 
@@ -49,14 +51,13 @@ with st.sidebar:
                     elif uploaded_file.type == "text/plain":
                         all_data.extend(process_text_file(file_bytes, filename=uploaded_file.name))
 
-                    # 3. Handle Images (jpg, png, jpeg)
+                    # 3. Handle Markdown Files with filename
+                    elif uploaded_file.type == "text/markdown" or uploaded_file.name.lower().endswith(".md"):
+                        all_data.extend(process_markdown_file(file_bytes,filename=uploaded_file.name))
+
+                    # 4. Handle Images (jpg, png, jpeg)
                     else:
-                        all_data.extend(
-                            process_standalone_image(
-                                file_bytes,
-                                source=uploaded_file.name
-                            )
-                        )
+                        all_data.extend(process_standalone_image(file_bytes,source=uploaded_file.name))
 
                 if all_data:
                     count = build_index(all_data)
@@ -77,41 +78,87 @@ with st.sidebar:
 # -------------------------------------------------
 # MAIN — QUERY + RAG
 # -------------------------------------------------
-query = st.chat_input("Ask a question about your documents, charts, or images...")
+query_input = st.chat_input("Ask one or multiple questions (one per line)...")
 
-if query:
-    results, error = retrieve_context(query)
+if query_input:
+    # 1. Split the input into individual questions
+    # We use strip() to remove empty lines
+    questions = [q.strip() for q in query_input.split('\n') if q.strip()]
 
-    if error:
-        st.warning(error)
-    else:
-        # -------- Generate Answer --------
-        with st.status("🤖 Generating answer..."):
-            answer = generate_answer(query, results)
+    if len(questions) > 1:
+        st.info(f"Processing batch of {len(questions)} questions...")
 
-        st.subheader("📝 Answer")
-        st.markdown(answer)
+    # 2. Loop through each question
+    for idx, query in enumerate(questions, start=1):
+        with st.container(): # Group each question/answer visually
+            if len(questions) > 1:
+                st.markdown(f"### ❓ Question {idx}: {query}")
 
-        # -------- Show Referenced Images --------
-        image_results = [r for r in results if r["type"] == "image"]
+            # --- THE RAG FLOW ---
+            results, error = retrieve_context(query)
 
-        # In main.py
-        if image_results:
-            st.subheader("🖼️ Referenced Visuals")
-            shown_pages = set() # Track pages already displayed
-            for res in image_results:
-                page_num = res["metadata"].get("page")
-                if page_num not in shown_pages:
-                    st.image(res["image_bytes"], caption=f"From Page {page_num}", use_container_width=True)
-                    shown_pages.add(page_num)
-    
-        # -------- Optional: Show Text Sources --------
-        text_results = [r for r in results if r["type"] == "text"]
+            if error:
+                st.warning(f"Error on Q{idx}: {error}")
+            else:
+                # -------- Generate Answer --------
+                with st.status("🤖 Generating answer...") as status:
+                    answer, in_t, out_t = generate_answer(query, results)
+                    status.update(label="Answer generated!", state="complete")
 
-        if text_results:
-            st.subheader("📄 Retrieved Text Context")
-            for i, res in enumerate(text_results, start=1):
-                # Using the metadata source (filename + page) as the label
-                source_label = res['metadata'].get('source', f'Source {i}')
-                with st.expander(f"Text Snippet {i} — {source_label}"):
-                    st.write(res["content"])
+                # -------- Display Answer --------
+                st.subheader("📝 Answer")
+                st.markdown(answer)
+
+                # Show Token Metrics (Mini version for batch)
+                st.caption(f"📊 Tokens: {in_t} in | {out_t} out | Total: {in_t + out_t}")
+
+                # -------- Show Referenced Images --------
+                image_results = [r for r in results if r["type"] == "image"]
+
+                if image_results:
+                    st.subheader("🖼️ Referenced Visuals")
+                    shown_pages = set() # Track pages already displayed
+                    display_count = 0
+
+                    # Limit to 2 images to avoid overload
+                    for res in image_results:
+                        if display_count >= 2: 
+                            break
+
+                        page = res["metadata"].get("page")
+                        source = res["metadata"].get("source")
+                        
+                        display_key = page if page is not None else source
+
+                        if display_key not in shown_pages:
+                            caption = (
+                                f"PDF Page {page}" if page is not None
+                                else f"Standalone Image: {source}"
+                        )
+                            st.image(res["image_bytes"], 
+                                    caption=caption, 
+                                    use_container_width=True
+                                    )
+                            
+                            shown_pages.add(display_key)
+                            display_count += 1
+
+                # -------- Optional: Show Text Sources --------
+                text_results = [r for r in results if r["type"] == "text"]
+
+                if text_results:
+                    st.subheader("📄 Retrieved Text Context")
+                    for i, res in enumerate(text_results, start=1):
+                        # Using the metadata source (filename + page) as the label
+                        source_label = res['metadata'].get('source', f'Source {i}')
+                        with st.expander(f"Text Snippet {i} — {source_label}"):
+                            st.write(res["content"])
+
+            st.divider()
+
+            # --- ADD SLEEP --- 
+            # When you process questions in a batch, Python is much faster than the API's "cooldown" period. 
+            # If you send 5 requests in 100 milliseconds, Groq's security system might flag it as a bot or a burst. 
+            # time.sleep(1) makes your app act more "human," which keeps your API key safe.
+            if len(questions) > 1:
+                time.sleep(1)

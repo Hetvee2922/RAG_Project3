@@ -17,7 +17,7 @@ VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 # -------------------------------------------------
 # RETRIEVE CONTEXT (TEXT FIRST, THEN IMAGES)
 # -------------------------------------------------
-def retrieve_context(query, k=30):
+def retrieve_context(query, k=10):
     index, docstore = load_vector_store()
 
     if index is None or index.ntotal == 0:
@@ -60,7 +60,7 @@ def retrieve_context(query, k=30):
 def generate_answer(query, results):
     system_prompt = (
         "You are an Advanced Multimodal Document Intelligence Assistant.\n"
-        "You receive DOCUMENT TEXT and IMAGE OCR DATA.\n\n"
+        "You receive DOCUMENT TEXT MARKDOWN and IMAGE OCR DATA.\n\n"
         "STRICT RULES:\n"
         "1. Use ONLY the provided data and if IMAGE OCR DATA says 'failed' or is messy, ignore that note and rely on your OWN visual analysis of the attached image.\n"
         "2. If the user asks about 'the image', prioritize STANDALONE IMAGE data.\n"
@@ -100,12 +100,12 @@ def generate_answer(query, results):
         }
     ]
 
-    # Attach images (max 5)
+    # Attach images (max 2 to avoid overload)
     sent_ids = set()
     image_count = 0
 
     for r in results:
-        if r["type"] == "image" and image_count < 5:
+        if r["type"] == "image" and image_count < 2:
             uid = r["metadata"].get("page") or r["metadata"].get("source")
             if uid in sent_ids:
                 continue
@@ -128,4 +128,12 @@ def generate_answer(query, results):
         max_tokens=1024
     )
 
-    return response.choices[0].message.content
+    # 1. Get the text content
+    answer = response.choices[0].message.content
+    
+    # 2. Get usage stats from the response object
+    prompt_tokens = response.usage.prompt_tokens
+    completion_tokens = response.usage.completion_tokens
+
+    # 3. Return all three items as a tuple
+    return answer, prompt_tokens, completion_tokens
